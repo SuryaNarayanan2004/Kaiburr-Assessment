@@ -1,99 +1,181 @@
-# Kaiburr Task Manager (Spring Boot 3 + MongoDB)
+# Kaiburr Task Manager - Kubernetes Deployment Guide
 
-Java 17 Spring Boot REST API to manage Tasks backed by MongoDB. Includes safe command execution (only `echo ...`) and Task execution history.
+This guide will help you deploy the Kaiburr Task Manager application to Kubernetes using Minikube or Docker Desktop.
 
-## Tech
-- Spring Boot 3.3
-- Java 17
-- MongoDB (dockerized)
-- Maven
-- JUnit + MockMvc
+## Prerequisites
 
-## Run locally
+- Docker Desktop with Kubernetes enabled, OR
+- Minikube installed and running
+- kubectl installed and configured
 
-Prereqs: Java 17, Maven, Docker
+## 🚀 Deployment Steps
 
-1. Start MongoDB via Docker:
+### Step 1: Start Kubernetes Cluster
+
+#### Option A: Docker Desktop
+1. Open Docker Desktop
+2. Go to Settings → Kubernetes
+3. Enable Kubernetes and click "Apply & Restart"
+
+#### Option B: Minikube
 ```bash
-docker compose up -d mongo
+# Start Minikube cluster
+minikube start
+
+# Enable ingress (optional)
+minikube addons enable ingress
 ```
 
-2. Run the app:
+### Step 2: Build and Load Docker Image
+
+#### For Docker Desktop:
 ```bash
-mvn spring-boot:run
-```
-App listens on `http://localhost:8080` and uses MongoDB at `mongodb://localhost:27017/kaiburr`.
+# Build the Docker image
+docker build -t kaiburr-task-manager:latest .
 
-Alternatively, run the full stack in Docker:
-```bash
-mvn -q -DskipTests package
-docker compose up -d --build
-```
-
-## API
-
-- GET `/tasks` → all tasks
-- GET `/tasks?id={id}` → single task
-- PUT `/tasks` → create/update task (only `echo ...` allowed)
-- DELETE `/tasks/{id}` → delete by id
-- GET `/tasks/search?name={namePart}` → search by name substring
-- PUT `/tasks/{id}/execute` → execute stored command and append `taskExecutions`
-
-### Task JSON
-```json
-{
-  "id": "string",
-  "name": "string",
-  "owner": "string",
-  "command": "echo hello",
-  "taskExecutions": [
-    { "startTime": "2025-01-01T10:00:00Z", "endTime": "2025-01-01T10:00:01Z", "output": "hello" }
-  ]
-}
+# Tag for Docker Desktop Kubernetes
+docker tag kaiburr-task-manager:latest kaiburr-task-manager:latest
 ```
 
-## Example curl
-
-Create/update:
+#### For Minikube:
 ```bash
-curl -X PUT http://localhost:8080/tasks \
+# Build the image in Minikube's Docker environment
+minikube image build -t kaiburr-task-manager:latest .
+
+# Or load existing image into Minikube
+minikube image load kaiburr-task-manager:latest
+```
+
+### Step 3: Deploy MongoDB
+
+```bash
+# Deploy MongoDB with persistent storage
+kubectl apply -f deployment-mongo.yaml
+
+# Verify MongoDB deployment
+kubectl get pods -l app=mongodb
+kubectl get services -l app=mongodb
+```
+
+### Step 4: Deploy Spring Boot Application
+
+```bash
+# Deploy the Spring Boot application
+kubectl apply -f deployment-app.yaml
+
+# Verify application deployment
+kubectl get pods -l app=kaiburr-task-manager
+kubectl get services -l app=kaiburr-task-manager
+```
+
+### Step 5: Verify Deployment
+
+```bash
+# Check all pods are running
+kubectl get pods
+
+# Check services
+kubectl get services
+
+# Check persistent volumes
+kubectl get pv
+kubectl get pvc
+```
+
+### Step 6: Test the Application
+
+#### Get the service URL:
+
+**For Docker Desktop:**
+```bash
+# The service is accessible at localhost:30080
+curl http://localhost:30080/tasks
+```
+
+**For Minikube:**
+```bash
+# Get the Minikube IP and service port
+minikube service kaiburr-task-manager-service --url
+
+# Test the endpoint (replace with actual URL from above command)
+curl http://<minikube-ip>:30080/tasks
+```
+
+#### Test API endpoints:
+```bash
+# Get all tasks (should return empty array initially)
+curl http://localhost:30080/tasks
+
+# Create a new task
+curl -X PUT http://localhost:30080/tasks \
   -H "Content-Type: application/json" \
-  -d '{"name":"Demo","owner":"you","command":"echo hi"}'
+  -d '{"name":"Test Task","owner":"Test User","command":"echo Hello World"}'
+
+# Get all tasks again (should show the created task)
+curl http://localhost:30080/tasks
 ```
 
-List all:
+## 🔧 Useful Commands
+
+### View Logs
 ```bash
-curl http://localhost:8080/tasks
+# View application logs
+kubectl logs -l app=kaiburr-task-manager
+
+# View MongoDB logs
+kubectl logs -l app=mongodb
+
+# Follow logs in real-time
+kubectl logs -f deployment/kaiburr-task-manager
 ```
 
-Get by id:
+### Debug Issues
 ```bash
-curl "http://localhost:8080/tasks?id=<TASK_ID>"
+# Describe pods for detailed information
+kubectl describe pod <pod-name>
+
+# Check events
+kubectl get events --sort-by=.metadata.creationTimestamp
+
+# Execute commands inside pods
+kubectl exec -it <pod-name> -- /bin/bash
 ```
 
-Search by name:
+### Scale Application
 ```bash
-curl "http://localhost:8080/tasks/search?name=emo"
+# Scale the application to 3 replicas
+kubectl scale deployment kaiburr-task-manager --replicas=3
 ```
 
-Execute:
+## 🧹 Cleanup
+
 ```bash
-curl -X PUT "http://localhost:8080/tasks/<TASK_ID>/execute"
+# Delete all resources
+kubectl delete -f deployment-app.yaml
+kubectl delete -f deployment-mongo.yaml
+
+# Or delete everything at once
+kubectl delete -f .
 ```
 
-Delete:
-```bash
-curl -X DELETE "http://localhost:8080/tasks/<TASK_ID>"
+## 📁 File Structure
+
+```
+k8s/
+├── README.md                 # This deployment guide
+├── deployment-app.yaml       # Spring Boot app deployment + service
+└── deployment-mongo.yaml     # MongoDB deployment + service + persistent storage
 ```
 
-## Testing
-```bash
-mvn test
-```
+## 🔍 Troubleshooting
 
-## Screenshots
-- Use Postman or curl outputs of the above requests. Include list, get by id, create, execute, delete.
+### Common Issues:
 
-## Notes
-- Command validation is strict by design to prevent RCE: only `echo ...` is permitted.
-- Configure MongoDB via env var `MONGODB_URI`.
+1. **Image not found**: Make sure the Docker image is built and available in your Kubernetes cluster
+2. **Pods not starting**: Check logs with `kubectl logs <pod-name>`
+3. **Service not accessible**: Verify the service type and ports are correct
+4. **MongoDB connection issues**: Ensure MongoDB pod is running and service is accessible
+
+### Health Checks:
+- Application health: `http://localhost:30080/tasks`
+- MongoDB health: Check pod logs for connection status
